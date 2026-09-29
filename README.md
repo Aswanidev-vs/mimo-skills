@@ -25,8 +25,9 @@ is what the loader matches on — not the source directory name.
 | `swarm-orchestrator` | user — `~/.local/share/mimocode/skills/` | 3 |
 | `unified-orchestrator` | user — `~/.local/share/mimocode/skills/` | 4 |
 | `mimo-caveman` | user — `~/.mimocode/skills/` | 1 |
+| `evolve` | user — rebuilt here, see its own README | 8 |
 
-8 user-created, 1 built-in.
+9 user-created, 1 built-in.
 
 ## Built-in
 
@@ -94,6 +95,23 @@ Token compression — cuts output ~65% while keeping technical accuracy. Three
 intensity levels: `lite`, `full` (default), `ultra`. Load when you want terse
 responses.
 
+### evolve
+Self-extension: create tools, intercept behavior with hooks, persist knowledge,
+or add TUI panels.
+
+Unlike the rest here, this one is **not a straight copy** — it's a rebuild.
+MiMoCode's original `evolve` skill was removed in
+[PR #2459](https://github.com/XiaomiMiMo/MiMo-Code/pull/2459), which disabled
+auto-loading of standalone tool and hook directories. Those directories were
+auto-imported and executed, so any file landing in one — a prompt-injection
+artifact, a malicious file drop, a cloned repo — became silently running code.
+The skill was pulled because it told the agent to write into those paths.
+
+This version targets the plugin API that replaced the mechanism, so the
+capability works without the exposure. It also ships an `example-plugin/` with a
+working tool and guard hook. **Read `evolve/README.md` before sharing it** —
+the security context is the whole reason it exists.
+
 ## Notes on the orchestrators
 
 The three orchestrators overlap by design. Rough division:
@@ -121,8 +139,27 @@ Two directory-name quirks worth knowing, since they don't match the skill names:
 Both are renamed to match their declared `name:` here, which is what the loader
 matches on.
 
+## Before you share this folder
+
+This package was scanned for credentials, emails, IPs, absolute paths, and
+personal project names — all clean. Two things to know anyway:
+
+**`agentic-orchestrator` originally shipped a live `.env`.** It contained four
+real API keys (OpenRouter, NVIDIA, PlanTokenRouter, MiMo) in plaintext, inherited
+from the source install. It has been removed here; `.env.example` with
+placeholders remains, so the skill still documents what to configure. **The
+source copy at `~/.local/share/mimocode/skills/agentic-orchestrator/` still has
+it** — if you copy skills again, exclude `.env` or delete it first. Those keys
+should also be treated as exposed and rotated, since they were readable on disk
+without version control.
+
+**`evolve` is a deliberate divergence from upstream**, not a verbatim copy. It
+documents two directory paths that no longer load. Anyone diffing it against the
+original will see those changes on purpose.
+
 ## Provenance
 
-Copied from a MiMoCode **0.1.15** Windows install. File counts verified against
-source after copying. `product-design` is MiMoCode/Xiaomi MiMo material — check
-its license before redistributing. The rest are community/user skills.
+Copied from a MiMoCode **0.1.15** Windows install, with `evolve` rebuilt locally.
+File counts verified against source after copying. `product-design` is
+MiMoCode/Xiaomi MiMo material — check its license before redistributing. The
+rest are community/user skills.

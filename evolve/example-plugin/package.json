@@ -1,0 +1,11 @@
+{
+  "name": "mimocode-evolve-example",
+  "version": "1.0.0",
+  "description": "Reference plugin for MiMoCode 0.1.15+ — shows how to ship a tool and a hook now that directory-based loading is gone",
+  "type": "module",
+  "main": "index.ts",
+  "license": "MIT",
+  "dependencies": {
+    "@mimo-ai/plugin": "^0.1.9"
+  }
+}
