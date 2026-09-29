@@ -99,12 +99,12 @@ responses.
 Self-extension: create tools, intercept behavior with hooks, persist knowledge,
 or add TUI panels.
 
-Unlike the rest here, this one is **not a straight copy** — it's a rebuild.
+Unlike the rest here, this one is **not a straight copy**  it's a rebuild.
 MiMoCode's original `evolve` skill was removed in
 [PR #2459](https://github.com/XiaomiMiMo/MiMo-Code/pull/2459), which disabled
 auto-loading of standalone tool and hook directories. Those directories were
-auto-imported and executed, so any file landing in one — a prompt-injection
-artifact, a malicious file drop, a cloned repo — became silently running code.
+auto-imported and executed, so any file landing in one a prompt-injection
+artifact, a malicious file drop, a cloned repo  became silently running code.
 The skill was pulled because it told the agent to write into those paths.
 
 This version targets the plugin API that replaced the mechanism, so the
