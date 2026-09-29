@@ -1,0 +1,3 @@
+display_name: "Agentic Orchestrator"
+short_description: "Multi-agent parallel orchestration system with specialized frontend, backend, security, review, and evaluation agents"
+default_prompt: "Orchestrate a multi-agent system to analyze and build this project with specialized agents running in parallel"
