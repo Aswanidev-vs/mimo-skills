@@ -1,178 +1,165 @@
 ---
 name: swarm-orchestrator
-description: Sequential multi-agent orchestration with cascading error control, weak-link detection, and cost-aware agent selection. Use when building agent pipelines where outputs feed into subsequent agents, when task decomposition requires interdependent subtasks, when hallucination propagation across agent chains is a risk, when you need stopping heuristics for agent count, or when the user says "agent swarm", "multi-agent pipeline", "chain of agents", or "decompose and delegate". Do NOT use for parallel independent specialists (use agentic-orchestrator instead).
+description: Sequential/DAG multi-agent pipelines where outputs feed downstream agents, with cascading-error control, weak-link detection, and cost-aware stopping. Use when subtasks are interdependent, hallucination propagation is a risk, or you need automatic stopping heuristics. For independent parallel specialists use agentic-orchestrator; for auto topology use unified-orchestrator.
 ---
 
-# Swarm Orchestrator
+# Swarm Orchestrator (Sequential / DAG Pipelines)
 
-Coordinate interdependent agents in sequential or DAG-structured pipelines with built-in error propagation control, weak-link detection, and cost-aware orchestration.
+Coordinate interdependent agents in sequential or DAG-structured pipelines with built-in error propagation control, weak-link detection, and cost-aware orchestration. Built on MiMoCode primitives: `actor` and `task`.
 
-## When to use this skill
-
-- Task requires **decomposition into sequential subtasks** where output of one agent feeds input of the next
-- **Cascading hallucination risk** — errors in early agents compound downstream
-- Need **automatic stopping** — don't know how many agents to spawn
-- **Budget-conscious** — need to minimize agent calls while maximizing quality
-- User requests "swarm", "pipeline", "chain", "decompose and delegate"
+## When to use
+- Task decomposes into sequential subtasks where output of one feeds the next.
+- Cascading hallucination risk (errors compound downstream).
+- Need automatic stopping (don't know how many agents to spawn).
+- Budget-conscious: minimize agent calls while maximizing quality.
+- User says "swarm", "pipeline", "chain", "decompose and delegate".
 
 ## When NOT to use
+- Agents are independent and parallel → `agentic-orchestrator`.
+- Simple task solvable by a single agent with tools.
+- Real-time systems (latency prohibitive).
 
-- Agents are **independent and parallel** (use `agentic-orchestrator`)
-- Simple task solvable by a **single agent with tools**
-- Real-time systems (latency prohibitive)
+## Decision tree
+```
+independent domains? ──yes──► agentic-orchestrator
+       │no
+       ▼
+sequential deps? ──yes──► swarm-orchestrator
+       │unclear
+       ▼
+unified-orchestrator (auto-detect)
+```
 
 ## Core concepts
 
 ### Pipeline topology
-
 ```
 Task → [Decomposer] → Agent1 → [Validator] → Agent2 → [Validator] → Agent3 → [Assembler]
-                                  ↑                                       ↑
-                            weak-link check                         weak-link check
 ```
-
 Three topologies, auto-selected by task complexity:
 
 | Topology | When | Agent count |
 |---|---|---|
-| **Linear chain** | Subtasks have clear sequential dependency | 3-6 |
-| **DAG** | Some subtasks can run in parallel, others depend on predecessors | 4-8 |
-| **Hub-and-spoke** | One core task with satellite validations | 3-5 |
+| Linear chain | Clear sequential dependency | 3-6 |
+| DAG | Some subtasks parallel, others depend | 4-8 |
+| Hub-and-spoke | One core task with satellite validations | 3-5 |
 
-### Agent selection matrix
-
-Choose model tier per subtask based on complexity and error sensitivity:
-
-| Subtask type | Model tier | Reasoning |
+### Model tier per subtask
+| Subtask type | Tier | Reason |
 |---|---|---|
-| **Critical path** (errors cascade) | frontier | Must be right; downstream depends on it |
-| **Validation/checking** | standard | Needs to catch errors, not create them |
-| **Simple transformation** | lite | Low risk, high volume |
-| **Assembly/synthesis** | frontier | Must integrate correctly |
+| Critical path (errors cascade) | frontier | downstream depends on it |
+| Validation/checking | standard | catches errors, doesn't create them |
+| Simple transformation | lite | low risk, high volume |
+| Assembly/synthesis | frontier | must integrate correctly |
 
-### Weak-link detection (WORC pattern)
+### Weak-link detection (WORC: Watch, Observe, Review, Correct)
+After each agent output, validate before passing downstream:
+1. **Confidence check:** hedging/uncertainty/refusal signals ("I'm not sure", "possibly").
+2. **Cross-validation:** lightweight validator checks factual consistency.
+3. **Coherence check:** output satisfies input contract (schema, constraints).
+4. **On weak link:** re-run with stronger model, or split the subtask.
 
-After each agent produces output, validate before passing downstream:
-
-1. **Confidence check**: Does the agent's output include hedging, uncertainty markers, or refusal signals?
-2. **Cross-validation**: Run a lightweight validator agent to check factual consistency
-3. **Coherence check**: Does the output satisfy the input contract (schema, constraints)?
-4. **If weak link detected**: Re-run with a stronger model, or split the subtask further
-
-```
-Weak link indicators:
-- Output contains "I'm not sure", "possibly", "might be wrong"
-- Validator confidence < 0.7
-- Output schema violations
-- Contradicts known facts from earlier pipeline stages
-```
+Weak-link indicators: hedging language; validator confidence < 0.7; schema violations; contradiction with earlier stages.
 
 ### Stopping heuristics
-
-Stop adding agents when any of these conditions hold:
-
-1. **Diminishing returns**: Adding an agent improves output quality by < 10% (measured by validator score)
-2. **Convergence**: Two consecutive agents produce substantively similar output
-3. **Budget cap**: Estimated remaining cost exceeds value of improvement
-4. **Complexity ceiling**: Task decomposition depth exceeds 5 levels (error compounding becomes unmanageable)
-5. **Time cap**: Pipeline duration exceeds task-appropriate threshold
+Stop adding agents when any holds:
+1. **Diminishing returns:** next agent improves quality < 10% (validator score).
+2. **Convergence:** two consecutive agents produce substantively similar output.
+3. **Budget cap:** estimated remaining cost exceeds value of improvement.
+4. **Complexity ceiling:** decomposition depth > 5 levels.
+5. **Time cap:** pipeline exceeds task-appropriate threshold.
+6. **Sufficiency:** all constraints satisfied, all subtasks complete.
 
 ### Cascading hallucination guardrails
+- **Fact grounding:** each agent cites sources; validator checks citations exist.
+- **Constraint propagation:** pass explicit constraints downstream; validator checks adherence.
+- **Error budget:** max N% error rate per stage; if exceeded, halt and escalate.
+- **Human-in-the-loop gates:** for high-stakes decisions (financial/medical/legal), insert approval before critical stages.
 
-Insert validation checkpoints between pipeline stages:
-
-- **Fact grounding**: Each agent must cite sources; validator checks citations exist
-- **Constraint propagation**: Pass explicit constraints downstream; validator checks adherence
-- **Error budget**: Allow max N% error rate per stage; if exceeded, halt and escalate
-- **Human-in-the-loop gates**: For high-stakes decisions (financial, medical, legal), insert approval before critical stages
+### Termination conditions
+Combine signals (OR logic) like AutoGen's termination conditions:
+- Marker token (e.g., `DONE` / `TERMINATE`) mentioned in output.
+- Max messages / max agent calls reached.
+- Max tokens or time exceeded.
+- Validator confidence below threshold → halt + escalate.
+- Reset state between runs.
 
 ## Workflow
+### Step 1: Decompose
+Analyze request → subtasks with dependencies → pick topology.
+Example: "Research competitor X, analyze pricing, write comparison report"
+- T1: Research competitor X (gather)
+- T2: Analyze pricing (transform, depends on T1)
+- T3: Write report (synthesize, depends on T1+T2)
+- Topology: linear chain.
 
-### Step 1: Decompose the task
+### Step 2: Assign
+Per subtask: model tier, agent count (1 or N), validation level (none/lightweight/thorough).
 
-Analyze the user's request and decompose into subtasks:
-
-```
-Input: "Research competitor X, analyze their pricing, write a comparison report"
-Decomposition:
-  T1: Research competitor X (gather data)
-  T2: Analyze pricing (transform data)
-  T3: Write report (synthesize)
-Dependencies: T2 depends on T1, T3 depends on T1 + T2
-Topology: Linear chain
-```
-
-### Step 2: Assign agents and models
-
-For each subtask, select:
-- **Model tier**: frontier / standard / lite (based on error sensitivity)
-- **Agent count**: 1 (for simple) or N (for complex subtasks needing internal decomposition)
-- **Validation level**: none / lightweight / thorough
-
-### Step 3: Execute pipeline
-
-Run agents sequentially (linear) or with dependency resolution (DAG):
-
-```
+### Step 3: Execute
 For each stage:
-  1. Spawn agent with subtask + input from predecessor
-  2. Run weak-link detection on output
-  3. If weak link → re-run with stronger model or split subtask
-  4. Pass validated output to next stage
-  5. Check stopping heuristics
-```
+1. Spawn agent with subtask + predecessor output (via `actor spawn`, bound to a `task`).
+2. Run weak-link detection on output.
+3. If weak link → re-run with stronger model or split subtask (max 2 retries).
+4. Pass validated output to next stage.
+5. Check stopping heuristics.
 
 ### Step 4: Assemble and validate
+Combine stage outputs; cross-reference claims against sources; check internal consistency; verify all constraints; report confidence.
 
-Combine all stage outputs into final deliverable. Run a final quality pass:
-- Cross-reference all claims against sources
-- Check internal consistency
-- Verify all constraints satisfied
-- Report confidence level
+## Primitives mapping
+- **Spawn stage agent:** `actor spawn` (subagent_type general/explore), `task_id` bound.
+- **Track stages:** `task` create/start/done per stage.
+- **Pass output:** shared contract file or direct `send` of validated output.
+- **Synchronize:** `wait` on actor_id; `status` to poll.
+- **Cancel:** `actor cancel` on stuck stage.
+
+## Guardrails (per stage output)
+1. **Confidence check:** no hedging/refusal.
+2. **Constraint check:** satisfies input requirements.
+3. **Cross-validation:** lightweight validator confirms factual accuracy.
+4. **Schema check:** output format correct.
+Recovery: re-run → split subtask → upgrade model → escalate to human.
+
+## Handoff schema (between stages)
+```json
+{
+  "stage": "T2",
+  "input_from": "T1",
+  "output": "...",
+  "evidence": ["file:line"],
+  "confidence": 0.85,
+  "weak_link": false,
+  "retries": 0
+}
+```
 
 ## Output format
-
 ```json
 {
   "pipeline": {
     "topology": "linear | dag | hub-spoke",
     "stages": [
-      {
-        "id": "T1",
-        "subtask": "Research competitor X",
-        "model_tier": "frontier",
-        "agent_count": 1,
-        "validation": "thorough",
-        "output_confidence": 0.85,
-        "weak_link_detected": false,
-        "retries": 0
-      }
+      { "id": "T1", "subtask": "...", "model_tier": "frontier", "agent_count": 1,
+        "validation": "thorough", "output_confidence": 0.85, "weak_link_detected": false, "retries": 0 }
     ],
-    "total_agents": 3,
-    "total_retries": 0,
+    "total_agents": 3, "total_retries": 0,
     "stopping_reason": "convergence | budget | ceiling | completion"
   },
-  "cost_estimate": {
-    "total_tokens": 45000,
-    "estimated_cost_usd": 0.12
-  },
-  "quality": {
-    "final_confidence": 0.88,
-    "fact_grounding": "all claims cited",
-    "consistency_check": "passed"
-  }
+  "cost_estimate": { "total_tokens": 0, "estimated_cost_usd": 0.0 },
+  "quality": { "final_confidence": 0.0, "fact_grounding": "all claims cited", "consistency_check": "passed" }
 }
 ```
 
 ## Anti-patterns
-
-1. **Swarm everything**: Don't use 5 agents when 1 with good tools suffices
-2. **Skip validation**: Every unchecked stage is a hallucination multiplier
-3. **Same model everywhere**: Use frontier for critical path, lite for simple transforms
-4. **No stopping rule**: Infinite decomposition = infinite cost
-5. **Ignore the Bystander Effect**: When agents see each other's outputs, they converge toward consensus even when wrong — use independent validation, not peer review
+1. **Swarm everything:** 5 agents when 1 with good tools suffices.
+2. **Skip validation:** every unchecked stage is a hallucination multiplier.
+3. **Same model everywhere:** frontier for critical path, lite for simple transforms.
+4. **No stopping rule:** infinite decomposition = infinite cost.
+5. **Bystander effect:** agents converging to consensus when wrong — use independent validation, not peer review.
 
 ## References
-
-- [Orchestration patterns](references/orchestration-patterns.md) — Detailed topology selection guide
-- [Validation strategies](references/validation-strategies.md) — Weak-link detection and hallucination guardrails
+- `references/orchestration-patterns.md` — topology selection guide.
+- `references/validation-strategies.md` — weak-link detection and hallucination guardrails.
+file_path">
+C:\Users\LENOVO\.local\share\mimocode\skills\swarm-orchestrator\SKILL.md

@@ -21,13 +21,14 @@ is what the loader matches on — not the source directory name.
 | `design-blueprint` | user — `~/.local/share/mimocode/skills/` | 8 |
 | `product-design` | **built-in** — `builtin_skills/0.1.15/skills/` | 28 |
 | `frontend-design` | user — `~/.agents/skills/` | 1 |
+| `frontend-design-v2` | local — this repo, not yet installed | 14 |
 | `agentic-orchestrator` | user — `~/.local/share/mimocode/skills/` | 14 |
 | `swarm-orchestrator` | user — `~/.local/share/mimocode/skills/` | 3 |
 | `unified-orchestrator` | user — `~/.local/share/mimocode/skills/` | 4 |
 | `mimo-caveman` | user — `~/.mimocode/skills/` | 1 |
 | `evolve` | user — rebuilt here, see its own README | 8 |
 
-9 user-created, 1 built-in.
+9 user-created, 1 built-in, 1 local-uninstalled (`frontend-design-v2`).
 
 ## Built-in
 
@@ -73,6 +74,74 @@ Pairs with `frontend-design`: blueprint first, then implementation.
 Builds the actual frontend — components, pages, landing pages, posters,
 applications. Takes a `DESIGN.md` from `design-blueprint` as its source of
 truth. Produces production-grade, deliberately non-generic UI.
+
+### frontend-design-v2
+The expanded rewrite of `frontend-design`, built here first and **not yet
+installed anywhere** — copy the folder to `~/.local/share/mimocode/skills/` (or
+`~/.agents/skills/`) to use it. Still v1's premise (commit to a bold aesthetic,
+execute it precisely) with the gaps closed around it.
+
+What v2 adds over the single-file original:
+
+- **Signal reading** — a Step 0 that extracts artifact type, domain, tone words,
+  named references, framework constraints, and existing state from the prompt,
+  so every later instruction adapts to the specific context instead of running
+  a fixed script.
+- **Routing table** — new build vs. restyle vs. component vs. screenshot port vs.
+  one-off fix, with an explicit handoff to `design-blueprint` for spec-only work.
+- **A Direction Card** committed in the reply before any styling: aesthetic,
+  metaphor, type voice, color logic, and the one signature mechanic — plus an
+  anti-convergence rule, since v1's "never converge on Space Grotesk" was advice
+  with no mechanism.
+- **Foundations before pixels** — tokens (OKLCH ramp, fluid type scale, spacing,
+  radius, motion) established as real code before components are styled.
+- **States as a build layer** — v1 said nothing about hover/focus/loading/empty/
+  error. These are now a mandatory pass with a state matrix.
+- **A real-browser verification loop** — screenshots at 1440/768/375, a
+  fix-and-re-render cycle, and an honesty rule: if no browser was available, say
+  what could not be verified.
+- **Eleven craft references** — anti-slop with a fix per attractor, typography
+  (pairing catalog, tracking/leading tables, font loading), color (OKLCH, dark
+  mode re-tuning, contrast), motion (easing, stagger, reduced-motion), layout
+  (grid, density, overflow), effects (grain, borders, depth without shadow),
+  framework patterns, existing-UI audit, screenshot-to-code extraction, a
+  quality-gate checklist, and **`reference-sites.md`** (see below).
+- **A 3D protocol** (`references/3d.md`) — for "build me a 3D website": the
+  if-3D-is-right honesty gate, stack selection (R3F / raw Three.js / Spline
+  `<spline-viewer>` / `<model-viewer>` / CSS 3D), the poster-first loading
+  pipeline, hard performance budgets (draw calls, texture memory, DPR clamps),
+  scroll-driven scene choreography, the accessibility floor, and the pre-ship
+  checks. The routing table has a dedicated 3D route into it.
+- **`assets/design-tokens.css`** — a runnable starter token layer to edit down.
+
+Overlaps `design-blueprint` by design: it reads an existing `DESIGN.md` as source
+of truth instead of regenerating one.
+
+### The reference-site catalog
+
+`references/reference-sites.md` is v2's dynamic engine. It teardowns eleven
+sites — Linear, Attio, Apple, Porsche, Aesop, Resend, Raycast, Spline,
+TinyFloor, Mobbin, Awwwards — as **sources of extractable technique, keyed to
+prompt signals**:
+
+- A routing table maps the prompt's words ("dev tool", "luxury", "playful",
+  "gallery", "3D") to one or two site sections to draw from.
+- Per site: identity, signature traits, borrow-when signals, concrete
+  extractable techniques (the CSS/JS mechanics), and the trap that fires when
+  surface details are cloned instead of mechanisms extracted.
+- Rule built into the file: one primary DNA source per design, at most one
+  secondary texture; rebuild every borrow in the Direction Card's own type,
+  color, and scale. Same DNA, different organism.
+
+Several techniques were also taken from a measured teardown of
+[gsap.com/pricing](https://gsap.com/pricing/), used as worked examples rather
+than as a thing to clone: the explicit
+`max(floor, min(A·vw + B, ceiling))` fluid ramp (no `clamp()`), per-section
+`--theme-color` scoping so hover colors fall out of the cascade, the oversized
+radial button wipe, the grain overlay at `opacity: .2`, and the grid-breaking
+"sticky context" overflow (a rotated avatar escaping its card). The arithmetic
+in `references/layout.md` and `references/typography.md` resolves to GSAP's own
+375px–1920px design range.
 
 ### agentic-orchestrator
 Parallel multi-agent fan-out with specialized domain agents (frontend, backend,
@@ -129,6 +198,10 @@ Copy any skill folder into a skills directory:
 
 Both load on the next turn. `~/.codex/skills/` also works and is visible in the
 skills picker.
+
+`frontend-design-v2` follows the same layout as `design-blueprint` and
+`product-design` — entry `SKILL.md` plus `references/` and `assets/` — so it can
+be copied into any of those directories unchanged once it's ready to go global.
 
 Two directory-name quirks worth knowing, since they don't match the skill names:
 

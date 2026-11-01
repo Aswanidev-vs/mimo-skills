@@ -1,227 +1,125 @@
 ---
 name: agentic-orchestrator
-description: Multi-agent orchestration system with specialized parallel agents for frontend, backend, review, security, integration, and evaluation. Use when building complex applications requiring coordinated multi-domain expertise, when tasks span multiple technical domains simultaneously, or when you need parallel specialist analysis with shared state coordination.
+description: Parallel specialist orchestration for multi-domain tasks. Use when a task spans multiple independent technical domains (frontend + backend + security + review) that can run concurrently and benefit from specialist agents with shared state. For sequential/dependent pipelines use swarm-orchestrator; for auto topology detection use unified-orchestrator.
 ---
 
-# Agentic Orchestrator v2.0.1
+# Agentic Orchestrator (Parallel Specialists)
 
-Coordinate multiple specialized agents running in parallel with model routing, bidirectional communication, MCP tool access, and independent subagent spawning.
+Coordinate independent specialist agents running in parallel, sharing state, with model-tier routing and a final evaluation pass. Built on MiMoCode primitives: `actor` (spawn/run/send/wait/status/cancel) and `task` (tracking).
 
-## Architecture
+## When to use
+- Task spans multiple technical domains that are largely independent (UI, API, security, review).
+- You want parallel specialist analysis with a shared contract/state.
+- Each domain can be owned by one agent without strong ordering.
 
+## When NOT to use
+- Subtasks are strictly sequential (output of A feeds B) → `swarm-orchestrator`.
+- You don't know the topology → `unified-orchestrator`.
+- Single agent with tools suffices → don't orchestrate.
+- Real-time/latency-critical paths.
+
+## Decision tree
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        ORCHESTRATOR                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │   Model      │  │ Communication│  │ MCP Tool     │          │
-│  │   Router     │  │     Bus      │  │ Integrator   │          │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
-│         │                 │                 │                   │
-│         ▼                 ▼                 ▼                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    AGENT LAYER                           │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐      │   │
-│  │  │Frontend │ │ Backend │ │Security │ │ Review  │      │   │
-│  │  │ [std]   │ │ [front] │ │ [front] │ │ [std]   │      │   │
-│  │  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘      │   │
-│  │       │           │           │           │             │   │
-│  │       ▼           ▼           ▼           ▼             │   │
-│  │  ┌─────────────────────────────────────────────────┐   │   │
-│  │  │           SUBAGENT SPAWNER                       │   │   │
-│  │  │  Each agent spawns specialized subagents         │   │   │
-│  │  └─────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                            │                                    │
-│                            ▼                                    │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │              CONNECTOR AGENT                             │   │
-│  │         (State Sync & Contract Validation)               │   │
-│  └─────────────────────┬───────────────────────────────────┘   │
-│                        │                                        │
-│                        ▼                                        │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │              EVALUATOR AGENT                             │   │
-│  │         (Metrics & Quality Analysis)                     │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────┘
+independent domains? ──yes──► agentic-orchestrator
+       │no
+       ▼
+sequential deps? ──yes──► swarm-orchestrator
+       │unclear
+       ▼
+unified-orchestrator (auto-detect)
 ```
 
-## Key Features
+## Primitives mapping
+- **Spawn specialists:** `actor` `spawn` with `subagent_type` (explore/general) and a focused prompt. Bind to a task via `task_id`.
+- **Track work:** `task` create/start/done per specialist.
+- **Communicate:** `actor` `send` for targeted messages; shared state via a single agreed contract document (file) that each agent reads/writes.
+- **Synchronize:** `actor` `wait` on each actor_id; `status` to poll.
+- **Cancel:** `actor` `cancel` if a specialist is stuck.
 
-### 1. Model Routing
-Each agent gets assigned the optimal model from available free and custom models:
+## Specialist roster (typical)
+| Specialist | Role | Model tier | Tools |
+|---|---|---|---|
+| frontend | UI components, styles, a11y | standard | read, write, edit, glob, grep, bash |
+| backend | API, DB, auth | frontier | read, write, edit, glob, grep, bash, webfetch |
+| security | vulnerabilities, OWASP, deps | frontier | read, glob, grep, bash, webfetch |
+| review | code review, conventions | standard | read, glob, grep |
+| connector | state sync, contract validation | lite | read, write, edit, glob, grep |
+| evaluator | final metrics/quality | frontier | read, glob, grep |
 
-| Agent | Tier | Models (rotate equally) |
-|-------|------|-------------------------|
-| **security** | frontier | `mimo-v2.5`, `minimax-m3`, `nemotron-3-ultra-550b:free` |
-| **backend** | frontier | `minimax-m3`, `qwen3-coder:free`, `mimo-v2.5` |
-| **frontend** | standard | `qwen3-coder:free`, `gemma-4-31b-it:free` |
-| **review** | standard | `gemma-4-31b-it:free`, `llama-3.3-70b:free` |
-| **evaluator** | frontier | `minimax-m3`, `mimo-v2.5`, `qwen3.5-122b` |
-| **connector** | lite | `lfm-2.5-1.2b:free`, `nemotron-nano-9b:free` |
+Model tiers: frontier = strongest available; standard = mid; lite = cheapest. Pick from configured providers; always define a fallback tier. Note: some models don't support parallel tool calls — disable that flag for those (e.g., o3-mini/o3/o4-mini family).
 
-**API Providers:**
-- OpenRouter: Free tier models (qwen, gemma, llama, etc.)
-- NVIDIA NIM: Free endpoints (nemotron, deepseek, qwen3.5)
-- Plan TokenRouter: MiniMax M3, M2.7
-- MiMo: Your custom v2.5 model
+## Workflow
+1. **Decompose** the task into specialist subtasks; create a `task` per specialist; note the shared contract (API schema, file paths, naming).
+2. **Spawn** specialists in parallel via `actor spawn` (one message, multiple calls). Pass the contract and their scope; set `task_id`.
+3. **Shared state:** specialists read/write an agreed contract file (e.g., `docs/contract.md` or a JSON schema). Connector validates it.
+4. **Synchronize:** `wait` on each actor; on timeout, `status` + `send` for progress; `cancel` if unrecoverable.
+5. **Evaluate:** evaluator scores completeness/correctness/consistency; report weak links.
+6. **Mark tasks done** only when verified.
 
-### 2. Bidirectional Communication Bus
-Agents communicate in real-time:
+## Communication patterns
+- **Broadcast (contract update):** write to the shared contract file; all specialists re-read on next step.
+- **Request-response:** `actor send` to a specific specialist actor_id with a question; result arrives as a completion notification.
+- **State sync:** connector agent reads all specialist outputs and reconciles.
 
-```javascript
-// Broadcast to all agents
-bus.publish('general', { sender: 'security', type: 'alert', payload: {...} });
+## Termination conditions
+Stop a specialist run when any holds:
+- Specialist reports completion with evidence.
+- `wait` times out and `status` shows no progress after a `send`.
+- Evaluator score below threshold → escalate, don't silently accept.
+- Budget cap exceeded.
 
-// Direct agent-to-agent message
-bus.sendToAgent('frontend', 'backend', { request: 'api-contract' });
+## Guardrails (per specialist output)
+Each specialist output must pass before merge:
+1. **Scope check:** only requested changes; no unrequested features.
+2. **Convention check:** matches neighboring code.
+3. **Contract check:** conforms to shared schema.
+4. **Evidence check:** claims backed by file:line or test output.
 
-// Request-response pattern
-const response = await bus.request('frontend', 'backend', { endpoints: [...] });
-```
+On failure: reject with feedback and re-run (max 2 retries); then escalate to user.
 
-### 3. MCP Tool Integration
-Each agent has access to tools and skills:
-
-```javascript
-// Frontend agent tools: read, write, edit, glob, grep, bash
-// Backend agent tools: read, write, edit, glob, grep, bash, webfetch
-// Security agent tools: read, glob, grep, bash, webfetch
-// Review agent tools: read, glob, grep
-```
-
-### 4. Independent Subagent Spawning
-Each agent can spawn specialized subagents:
-
-```
-Frontend Agent
-├── component-builder (UI components)
-├── style-specialist (CSS systems)
-└── a11y-auditor (accessibility)
-
-Backend Agent
-├── api-designer (REST/GraphQL)
-├── db-architect (schemas)
-└── auth-specialist (security)
-
-Security Agent
-├── pen-tester (vulnerabilities)
-├── compliance-checker (OWASP)
-└── dependency-auditor (CVEs)
-```
-
-## Usage
-
-### Basic Parallel Execution
-```javascript
-const result = await workflow('agentic-orchestrator', {
-  task: 'Build a secure authentication system',
-  agents: ['frontend', 'backend', 'security']
-});
-```
-
-### With Custom Model Configuration
-```javascript
-const result = await workflow('agentic-orchestrator', {
-  task: 'Analyze codebase security',
-  agents: ['security', 'review'],
-  options: {
-    modelConfig: {
-      security: { primary: 'frontier', fallback: 'frontier' }
-    }
-  }
-});
-```
-
-### With Subagent Spawning
-```javascript
-const result = await workflow('agentic-orchestrator', {
-  task: 'Build complete user dashboard',
-  agents: ['frontend', 'backend'],
-  options: {
-    maxConcurrent: 4,
-    timeout: 600000
-  }
-});
-```
-
-## Communication Patterns
-
-### 1. Broadcast Pattern
-```javascript
-// Security agent alerts all others
-bus.publish('security-alerts', {
-  sender: 'security',
-  type: 'vulnerability-found',
-  payload: { severity: 'high', component: 'auth' }
-});
-```
-
-### 2. Request-Response
-```javascript
-// Frontend asks backend for API contract
-const contract = await bus.request('frontend', 'backend', {
-  type: 'api-contract',
-  endpoints: ['POST /users', 'GET /users/:id']
-});
-```
-
-### 3. State Synchronization
-```javascript
-// Agents read/write to shared state
-state.update('frontend', { components: ['LoginForm'] });
-const frontendState = state.read('frontend');
-```
-
-## Output Format
-
+## Handoff schema (between specialists)
 ```json
 {
-  "task": "Build authentication system",
-  "duration": 45000,
-  "modelAssignments": {
-    "frontend": "qwen/qwen3-coder:free",
-    "backend": "minimax-m3",
-    "security": "mimo-v2.5"
-  },
-  "providers": {
-    "frontend": "openrouter",
-    "backend": "planTokenRouter",
-    "security": "mimo"
-  },
-  "communication": {
-    "totalMessages": 24,
-    "channels": ["general", "security-alerts", "state-updates"]
-  },
-  "subagents": {
-    "totalSpawned": 8,
-    "history": [...]
-  },
-  "modelUsage": {
-    "totalCalls": 6,
-    "totalCost": 0,
-    "costByAgent": { "frontend": 0, "backend": 0, "security": 0 }
-  },
-  "summary": {
-    "total": 3,
-    "successful": 3,
-    "failed": 0
-  }
+  "from": "backend",
+  "to": "frontend",
+  "type": "api-contract",
+  "payload": { "endpoints": ["POST /users"] },
+  "evidence": ["src/api/users.ts:12"],
+  "confidence": 0.9
 }
 ```
 
-## Error Handling
+## Error handling
+- One specialist failing doesn't block others; evaluator includes failed-agent analysis.
+- Model fallback: on primary failure, retry with fallback tier.
+- Communication failures: re-send with backoff; if persistent, escalate.
+- Subagent (nested) timeouts don't affect parent.
 
-- Agent failures don't block other agents
-- Model fallback on primary model failure
-- Communication bus handles message delivery failures
-- Subagent timeouts don't affect parent agent
-- Evaluator includes failed agent analysis in reports
+## Output format
+```json
+{
+  "task": "...",
+  "duration_ms": 0,
+  "model_assignments": { "frontend": "standard", "backend": "frontier" },
+  "communication": { "messages": 0, "channels": [] },
+  "specialists": { "total": 0, "successful": 0, "failed": 0 },
+  "evaluation": { "score": 0.0, "weak_links": [] },
+  "summary": "..."
+}
+```
 
-## Best Practices
+## Anti-patterns
+1. Spawning 5 specialists when 1 with tools suffices.
+2. No shared contract → integration chaos.
+3. Same model tier for all → waste or under-power.
+4. Skipping evaluation → unchecked output ships.
+5. Orphaning tasks (not marking done/blocked).
 
-1. **Configure API keys**: Copy `.env.example` to `.env` and add your keys
-2. **Use appropriate agents**: Not all agents needed for every task
-3. **Monitor communication**: Check bus history for coordination issues
-4. **Leverage subagents**: Let agents delegate specialized work
-5. **Trust the evaluator**: Final scores indicate overall quality
+## Best practices
+1. Configure API keys before running; define model tiers in project config.
+2. Use only the specialists the task needs.
+3. Keep the shared contract minimal and versioned.
+4. Trust the evaluator's final score; escalate low scores.
+5. Bind every spawned actor to a `task_id` for traceability.
+file_path">
+C:\Users\LENOVO\.local\share\mimocode\skills\agentic-orchestrator\SKILL.md

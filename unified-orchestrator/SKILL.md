@@ -1,144 +1,126 @@
 ---
 name: unified-orchestrator
-description: Hybrid multi-agent orchestration that auto-detects task topology and combines parallel execution with sequential pipelines. Use when building complex applications requiring coordinated multi-domain expertise AND sequential dependencies, when tasks span both independent parallel work and dependent chains, when you need automatic topology detection and agent count decisions, when the user says "orchestrate", "coordinate agents", "multi-agent", "build with agents", or "swarm". Also triggers on complex tasks too large for a single agent but where the right split between parallel and sequential is unclear.
+description: Hybrid multi-agent orchestration that auto-detects task topology and combines parallel execution with sequential pipelines, applying cascading validation throughout. Use when a task spans both independent parallel work and dependent chains, when topology is unclear, or when the user says "orchestrate", "coordinate agents", "multi-agent", "build with agents", or "swarm". Canonical orchestrator; prefer this when unsure.
 ---
 
-# Unified Orchestrator
+# Unified Orchestrator (Auto-Topology)
 
-Auto-detects task topology, routes subtasks to parallel or sequential execution, and applies cascading validation throughout.
+Auto-detects task topology, routes subtasks to parallel or sequential execution, and applies cascading validation throughout. Canonical orchestrator — prefer this when unsure which to use. Built on MiMoCode primitives: `actor` and `task`.
 
-## Architecture
+## When to use
+- Task has both independent parallel work and dependent chains.
+- Topology is unclear.
+- Complex task too large for a single agent.
+- User says "orchestrate", "coordinate agents", "multi-agent", "build with agents", "swarm".
 
+## When NOT to use
+- Clearly independent domains only → `agentic-orchestrator` (simpler).
+- Clearly sequential only → `swarm-orchestrator` (simpler).
+- Single agent with tools suffices.
+
+## Decision tree
 ```
-                         ┌─────────────────────┐
-                         │   TASK ANALYZER      │
-                         │  (decompose + graph) │
-                         └──────────┬──────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    ▼               ▼               ▼
-             ┌──────────┐   ┌──────────┐   ┌──────────┐
-             │ PARALLEL │   │ SEQUENTIAL│   │   HUB    │
-             │  CLUSTER │   │  CHAIN   │   │  + SPOKE │
-             └────┬─────┘   └────┬─────┘   └────┬─────┘
-                  │              │              │
-                  └──────────────┼──────────────┘
-                                 ▼
-                         ┌──────────────┐
-                         │  VALIDATOR   │
-                         │ (weak-link + │
-                         │  consistency)│
-                         └──────┬───────┘
-                                ▼
-                         ┌──────────────┐
-                         │  ASSEMBLER   │
-                         └──────────────┘
+clearly independent? ──yes──► agentic-orchestrator
+       │no
+       ▼
+clearly sequential? ──yes──► swarm-orchestrator
+       │no / unclear
+       ▼
+unified-orchestrator (this)
 ```
 
 ## Workflow
 
 ### Step 1: Analyze the task
+Decompose into subtasks and build a dependency graph.
+Example: "Research competitors, build comparison dashboard, write executive summary"
+- T1: Research competitors (no deps)
+- T2: Gather pricing data (no deps)
+- T3: Build comparison dashboard (depends: T1, T2)
+- T4: Write executive summary (depends: T1, T2, T3)
 
-Decompose the user's request into subtasks and build a dependency graph:
-
-```
-Input: "Research competitors, build a comparison dashboard, write executive summary"
-
-Decomposition:
-  T1: Research competitors        (no deps)
-  T2: Gather pricing data          (no deps)
-  T3: Build comparison dashboard   (depends: T1, T2)
-  T4: Write executive summary      (depends: T1, T2, T3)
-
-Dependency graph:
-  T1 ──┐
-       ├──→ T3 ──→ T4
-  T2 ──┘
-```
-
-**Decision rules:**
-- If subtask has **no dependencies** → parallel cluster
-- If subtask **depends on another** → sequential chain
-- If subtask **validates another** → hub-and-spoke
-
-### Step 2: Assign models and validate level
-
-| Subtask role | Model tier | Validation | Rationale |
-|---|---|---|---|
-| **Data gathering** | standard | lightweight | Volume task, downstream validates |
-| **Core analysis** | frontier | thorough | Errors cascade |
-| **Creative generation** | frontier | lightweight | Creativity shouldn't be over-validated |
-| **Validation/checking** | standard | none | Checker doesn't need checking |
-| **Assembly/synthesis** | frontier | thorough | Must integrate correctly |
-
-### Step 3: Execute
-
-**Parallel clusters** — spawn all agents simultaneously:
-
-```
-Cluster A (independent):
-  Agent(T1, tier=standard) ──→ output1
-  Agent(T2, tier=standard) ──→ output2
-  [wait for all, validate each]
-```
-
-**Sequential chains** — execute in order with validation gates:
-
-```
-Chain B (dependent):
-  Agent(T3, input=output1+output2, tier=frontier) ──→ validate ──→ output3
-  Agent(T4, input=output1+output2+output3, tier=frontier) ──→ validate ──→ output4
-```
-
-**Mixed** — run parallel clusters first, feed results into sequential chains:
-
-```
-Phase 1: Parallel [T1, T2]
-Phase 2: Sequential T3(T1,T2) → T4(T1,T2,T3)
-```
-
-### Step 4: Validate and assemble
-
-- Run weak-link detection after every stage
-- If weak link detected: re-run, split, or upgrade model
-- Assemble final output from all stage outputs
-- Run final consistency check
-
-## Topology detection heuristics
-
-Auto-detect from dependency graph:
-
+### Step 2: Topology detection
 | Pattern | Signal | Action |
 |---|---|---|
-| **All independent** | No edges in graph | Full parallel |
-| **All dependent** | Linear chain of edges | Full sequential |
-| **Mixed** | Some parallel branches feeding sequential stages | Phased: parallel → sequential |
-| **Fan-out** | One task produces outputs for many consumers | Hub-and-spoke |
-| **Fan-in** | Many tasks produce inputs for one consumer | Parallel → single sequential |
+| All independent | No edges | Full parallel |
+| All dependent | Linear chain of edges | Full sequential |
+| Mixed | Some parallel branches feeding sequential stages | Phased: parallel → sequential |
+| Fan-out | One task produces outputs for many consumers | Hub-and-spoke |
+| Fan-in | Many tasks produce inputs for one consumer | Parallel → single sequential |
 
-## Stopping heuristics
+### Step 3: Assign models and validation level
+| Subtask role | Tier | Validation | Rationale |
+|---|---|---|---|
+| Data gathering | standard | lightweight | volume; downstream validates |
+| Core analysis | frontier | thorough | errors cascade |
+| Creative generation | frontier | lightweight | don't over-validate creativity |
+| Validation/checking | standard | none | checker needs no checking |
+| Assembly/synthesis | frontier | thorough | must integrate correctly |
 
-Stop adding agents when:
+### Step 4: Execute
+- **Parallel clusters:** spawn all agents simultaneously (`actor spawn`), wait for all, validate each.
+- **Sequential chains:** execute in order with validation gates.
+- **Mixed:** run parallel clusters first, feed results into sequential chains.
 
-1. **Diminishing returns**: Next agent improves quality by < 10%
-2. **Convergence**: Two consecutive agents produce similar output
-3. **Budget cap**: Remaining cost exceeds improvement value
-4. **Complexity ceiling**: Pipeline depth > 5 stages
-5. **Sufficiency**: All constraints satisfied, all subtasks complete
+### Step 5: Validate and assemble
+- Weak-link detection after every stage.
+- On weak link: re-run, split, or upgrade model.
+- Assemble final output; run final consistency check.
+
+## Primitives mapping
+- **Spawn:** `actor spawn` (subagent_type general/explore), bound to `task_id`.
+- **Track:** `task` create/start/done per subtask.
+- **Pass output:** shared contract file or `actor send`.
+- **Synchronize:** `wait` on actor_ids; `status` to poll; `cancel` if stuck.
 
 ## Weak-link detection
+After every agent output:
+1. **Confidence check:** hedging, uncertainty, refusal signals.
+2. **Constraint check:** output satisfies input requirements.
+3. **Cross-validation:** lightweight validator confirms factual accuracy.
+4. **Schema check:** output format correct.
+Recovery: re-run → split subtask → upgrade model → escalate to human.
 
-After every agent output, run:
+## Stopping heuristics
+Stop adding agents when:
+1. Diminishing returns (< 10% improvement).
+2. Convergence (two consecutive agents similar output).
+3. Budget cap (remaining cost > improvement value).
+4. Complexity ceiling (pipeline depth > 5 stages).
+5. Sufficiency (all constraints satisfied, all subtasks complete).
 
-1. **Confidence check**: Hedging, uncertainty, refusal signals
-2. **Constraint check**: Output satisfies input requirements
-3. **Cross-validation**: Lightweight validator confirms factual accuracy
-4. **Schema check**: Output format correct
+## Termination conditions
+Combine signals (OR logic):
+- Marker token (`DONE`/`TERMINATE`) in output.
+- Max messages / agent calls reached.
+- Max tokens or time exceeded.
+- Validator confidence below threshold → halt + escalate.
+- Reset state between runs.
 
-Recovery: re-run → split subtask → upgrade model → escalate to human
+## Guardrails (per stage output)
+1. Confidence check (no hedging/refusal).
+2. Constraint check (satisfies input requirements).
+3. Cross-validation (factual accuracy).
+4. Schema check (format correct).
+Recovery: re-run → split → upgrade model → escalate.
+
+## Handoff schema (between stages)
+```json
+{
+  "stage": "T3",
+  "inputs": ["T1", "T2"],
+  "output": "...",
+  "evidence": ["file:line"],
+  "confidence": 0.9,
+  "weak_link": false,
+  "retries": 0
+}
+```
+
+## Model-capability note
+Some models don't support parallel tool calls (e.g., o3-mini/o3/o4-mini family). Disable that flag for those. Always define fallback tiers.
 
 ## Output format
-
 ```json
 {
   "task_analysis": {
@@ -150,32 +132,27 @@ Recovery: re-run → split subtask → upgrade model → escalate to human
     ]
   },
   "execution": {
-    "total_agents": 6,
-    "total_retries": 1,
-    "weak_links_detected": 1,
+    "total_agents": 6, "total_retries": 1, "weak_links_detected": 1,
     "stopping_reason": "completion"
   },
   "quality": {
     "final_confidence": 0.91,
     "stage_scores": { "T1": 0.88, "T2": 0.85, "T3": 0.92, "T4": 0.90 }
   },
-  "cost": {
-    "total_tokens": 72000,
-    "estimated_usd": 0.18
-  }
+  "cost": { "total_tokens": 0, "estimated_usd": 0.0 }
 }
 ```
 
 ## Anti-patterns
-
-1. **Force everything parallel** — independent ≠ unrelated; check logical dependencies
-2. **Force everything sequential** — independent subtasks waste time in chains
-3. **Skip validation between phases** — parallel outputs may conflict at merge points
-4. **Use same model tier for all** — gathering data doesn't need frontier; critical analysis does
-5. **Ignore the merge point** — when parallel branches feed into one stage, validate cross-branch consistency
+1. Force everything parallel — independent ≠ unrelated; check logical dependencies.
+2. Force everything sequential — independent subtasks waste time in chains.
+3. Skip validation between phases — parallel outputs may conflict at merge points.
+4. Same model tier for all — gathering data doesn't need frontier; critical analysis does.
+5. Ignore the merge point — when parallel branches feed one stage, validate cross-branch consistency.
 
 ## References
-
-- [Task graph analysis](references/task-graph-analysis.md) — How to decompose and detect topology
-- [Validation strategies](references/validation-strategies.md) — Weak-link detection and hallucination guardrails
-- [Orchestration patterns](references/orchestration-patterns.md) — Topology details and model selection
+- `references/task-graph-analysis.md` — decomposition and topology detection.
+- `references/validation-strategies.md` — weak-link detection and hallucination guardrails.
+- `references/orchestration-patterns.md` — topology details and model selection.
+file_path">
+C:\Users\LENOVO\.local\share\mimocode\skills\unified-orchestrator\SKILL.md
